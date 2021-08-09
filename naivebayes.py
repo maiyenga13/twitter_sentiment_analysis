@@ -1,174 +1,140 @@
 from collections import defaultdict
 import math
-#from typing import DefaultDict
 
-#TODO: make more general? takes in number of labels 
+#TODO: make more general? takes in number of labels
+# use smoothing 
 class NaiveBayesClassifier(object):
     def __init__(self, n, training_doc, training_labels, smoothing):
-        self.n = n
+        self.n = n #n-gram number
         self.training_doc = list(open(training_doc, 'r')) #training documents
         self.training_labels = list(open(training_labels, 'r')) #training labels
-        #Dictionaries
+        
+        #Dictionaries containing frequency of each word in docs of each label/class
         self.pos_dict = defaultdict(int)
         self.neutral_dict = defaultdict(int)
         self.neg_dict = defaultdict(int)
-        #Priors = #docs of class c / #total docs
-        self.pos = 0
-        self.neutral = 0
-        self.neg = 0
-        #Total number words in each class (not unique)
-        self.total_pos = 0
-        self.total_neutral = 0
-        self.total_neg = 0
+        self.dicts = {'positive': self.pos_dict, 'negative': self.neg_dict, 'neutral': self.neutral_dict}
         
-        self.smoothing = smoothing # 0 is no smoothing, 1 is LaPlace, 2 is backoff and LaPlace
+        #Priors = #docs of class c / #total docs
+        self.priors = defaultdict(int)
 
+        #Total number words in each class (not unique)
+        self.totals = defaultdict(int)
+    
+
+        self.smoothing = smoothing # 0 is no smoothing, 1 is LaPlace, 2 is backoff and LaPlace
         self.all_words = set() #set of all words across all types
+        
         self.build()
                
+    #Iterates through each document in training set and calculates frequency of each word in each class
+    #Calculates prior probabilities 
     def build(self):
        
         if(len(self.training_doc) != len(self.training_labels)):
             print("Error: number of documents and labels not consistent")
             return
-        for i in range(len(self.training_doc)//2):
-            doc = self.training_doc[i].replace('\n', '')
+        
+        for i in range(len(self.training_doc)//2): #use half of the labeled data for training
+            #Pre-process
+            doc = self.preprocess(self.training_doc[i]) 
+            label = self.preprocess(self.training_labels[i])[0]
             
-            idx = doc.find('http')
-            if(idx >= 0):
-                doc = doc[0:idx]
-            doc = doc.split(" ")
-            
-            label = self.training_labels[i].replace('\n', '')
-            
-            if(label == 'positive'):
-                self.parseLine(self.pos_dict, doc)
-                self.pos += 1
-                self.total_pos += len(doc)
-            elif(label == 'neutral'):
-                self.parseLine(self.neutral_dict, doc)
-                self.neutral += 1
-                self.total_neutral += len(doc)
-            else: 
-                self.parseLine(self.neg_dict, doc)
-                self.neg += 1
-                self.total_neg += len(doc)
+            self.priors[label] += 1
+            self.totals[label] += len(doc)
+            self.parseLine(self.dicts[label], doc)
 
-        self.pos = self.pos / (len(self.training_doc)//2)
-        self.neutral = self.neutral / (len(self.training_doc)//2)
-        self.neg = self.neg / (len(self.training_doc)//2)
+        #Calculate priors
+        num_docs = len(self.training_doc) // 2
+        
+        self.priors['positive'] = self.priors['positive'] / num_docs
+        self.priors['negative'] = self.priors['negative'] / num_docs
+        self.priors['neutral'] = self.priors['neutral'] / num_docs
 
+    #Remove trailing return characters and URLs
+    def preprocess(self, doc):
+        doc = doc.replace('\n', '')
+        idx = doc.find('http')
+        if(idx >= 0):
+            doc = doc[0:idx]
+        doc = doc.split(" ")
+        return doc
 
-    #TODO: add support for n grams         
+    #TODO: add support for n grams
+    #Parses a single document by increasing the frequency of each word 
+    # and added each word to the set collecting all known words from training         
     def parseLine(self, dictionary, line):
         #words = line.split(" ")
         for word in line: 
             dictionary[word] += 1
             self.all_words.add(word)
+
+    #Calculates likelihood of a line having the provided label
     def calculate(self, label, line):
-        dictionary = None
-        prior = 0
-        total = 0 
-        if(label == 'positive'):
-            dictionary = self.pos_dict
-            prior = self.pos
-            total = self.total_pos
-        elif(label == 'neutral'):
-            dictionary = self.neutral_dict
-            prior = self.neutral
-            total = self.total_neutral
-        else: 
-            dictionary = self.neg_dict
-            prior = self.neg
-            total = self.total_neg
-        
+        prior = self.priors[label]
+        dictionary = self.dicts[label]
+        total = self.totals[label]
         
         likelihood = 0
         if(prior != 0):
             likelihood = math.log(prior)
-        for word in line.split(" "): 
-           
-            if(word in self.all_words):
-                
-                likelihood += math.log((dictionary[word] + 1 )/( total + len(self.all_words)))
-                
-       
+        
+        for word in line: 
+            if(word in self.all_words): #ignores unknown words
+                likelihood += math.log((dictionary[word] + 1)/(total + len(self.all_words)))
         return likelihood
 
-    def test(self):
+    #Determines whether a classification is a true positive, false positive or false negative 
+    def makeConfusionMatrix(self, pred_label, actual_label, label, results):
+        if(pred_label == actual_label and pred_label == label):
+            results['tp'] += 1
+        if(pred_label == label and pred_label != actual_label):
+            results['fp'] += 1
+        if(actual_label == label and pred_label != actual_label):
+            results['fn'] += 1
+
+    #Calculates precision and recall
+    def calcPrecisionRecall(self, results):
+        recall = results['tp'] / (results['tp'] + results['fn'])
+        precision = results['tp'] / (results['tp'] + results['fp'])
+        return [recall, precision]
+
+
+    #Compares most likely label with actual and calculates precision and recall
+    def test(self):  
         labels = ['positive', 'neutral', 'negative']
-        pos_tp = 0 #pred = actual = pos
-        pos_fp = 0 #pred = pos, actual = not pos
-        pos_fn = 0 #pred = not post, actual = pos
-        neutral_tp = 0
-        neutral_fp = 0
-        neutral_fn = 0
-        neg_tp = 0
-        neg_fp = 0
-        neg_fn = 0
+        pos_results = defaultdict(int)
+        neg_results = defaultdict(int)
+        neutral_results = defaultdict(int)
+        results = {'positive': pos_results, 'negative': neg_results, 'neutral': neutral_results}
+        
         for i in range(len(self.training_doc)//2, len(self.training_doc)):
-            line = self.training_doc[i].replace('\n', '')
-            actual_label = self.training_labels[i].replace('\n', '')
+            line = self.preprocess(self.training_doc[i])
+            actual_label = self.preprocess(self.training_labels[i])[0]
             
-
-            pos_likelihood = self.calculate('positive', line)
-            neutral_likelihood = self.calculate('neutral', line)
-            neg_likelihood = self.calculate('negative', line)
-            likelihoods = [pos_likelihood, neutral_likelihood, neg_likelihood]
+            likelihoods = list(map(lambda label : self.calculate(label, line), labels))
             pred_label = labels[likelihoods.index(max(likelihoods))]
-            if(actual_label == 'positive'):
-                if(pred_label == 'positive'):
-                    pos_tp += 1
-                elif(pred_label == 'neutral'):
-                    pos_fn +=1
-                    neutral_fp +=1
-                else:
-                    pos_fn += 1
-                    neg_fp += 1
-            elif(actual_label == 'neutral'):
-                if(pred_label == 'positive'):
-                    pos_fp += 1
-                    neutral_fn += 1
-                elif(pred_label == 'neutral'):
-                    neutral_tp += 1
-                else:
-                    neutral_fn += 1
-                    neg_fp += 1
-            else: 
-                if(pred_label == 'positive'):
-                    pos_fp += 1
-                    neg_fn += 1
-                elif(pred_label == 'neutral'):
-                    neutral_fp += 1
-                    neg_fn +=1
-                else:
-                    neg_tp += 1
-        pos_recall = pos_tp / (pos_tp + pos_fn)
-        pos_precision = pos_tp / (pos_tp + pos_fp)
-        neutral_recall = neutral_tp / (neutral_tp + neutral_fn)
-        neutral_precision = neutral_tp / (neutral_tp + neutral_fp)
-        neg_recall = neg_tp / (neg_tp + neg_fn)
-        neg_precision = neg_tp / (neg_tp + neg_fp)
-        avg_recall = (pos_recall + neutral_recall + neg_recall) / 3
-        avg_precision = (pos_precision + neutral_precision + neg_precision) / 3
 
-        print("Positive- recall: ", pos_recall , " , precision: " , pos_precision)
-        print("Neutral- recall: " , neutral_recall , " , precision: " , neutral_precision)
-        print("Negative- recall: " , neg_recall , " , precision: " , neg_precision)
+            for label in labels: 
+                self.makeConfusionMatrix(pred_label, actual_label, label, results[label])
+            
+        avg_recall = 0
+        avg_precision = 0
+        for label in labels:
+            dictionary = results[label]
+            [recall, precision] = self.calcPrecisionRecall(dictionary)
+            print(label, '- recall: ', recall, " , precision: " , precision)
+            avg_recall += recall
+            avg_precision += precision
+
+        
+        avg_recall = avg_recall / 3
+        avg_precision = avg_precision / 3
         print("Average recall: " , avg_recall , " Average Precision: " , avg_precision)
 
 
-    
-
 if __name__ == "__main__":
     nb = NaiveBayesClassifier(1, "dev_text.txt", "dev_label.txt", 0)
-    #print(nb.pos_dict)
-    #print(nb.neg_dict)
-    #print(nb.total_pos)
-    #print(nb.total_neg)
     nb.test()
-    #print(nb.calculate('negative', "@fuckzehk @shegavemethesuc lets play monopoly when gucci gets home since he doesn't have school tomorrow"))
-    #print(nb.calculate('positive', "@fuckzehk @shegavemethesuc lets play monopoly when gucci gets home since he doesn't have school tomorrow"))
-    #print(nb.calculate('neutral', "@fuckzehk @shegavemethesuc lets play monopoly when gucci gets home since he doesn't have school tomorrow"))
 
 
