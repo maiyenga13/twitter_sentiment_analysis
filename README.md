@@ -1,16 +1,9 @@
 # twitter_sentiment_analysis
-
--Gameplan: 
-    - Build Naive Bayes classifier with features as unigram, bigram, and trigram
-        - one naive bayes class, different methods to train and test for each type? 
-            - takes in train and test data + method?
-            - method to parse data files
-            - calculate and print out recall + precision
-            - also print out confusion matrix
-    - Improve with word2vec using https://www.kaggle.com/c/word2vec-nlp-tutorial
-    - Try Support Vector Machine
-    - Use Neural Nets?? (using NLP hw stuff)
-
+Naive Bayes classifier currently using unigram model with LaPlace smoothing to predict a tweet as 'positive', 'neutral', or 'negative'
+TODO: 
+- add bigram and trigrams with backoff
+- further smoothing
+- currently ignores unknown, may need to change this
 
 Results: unigram with LaPlace
     Positive- recall:  0.4415954415954416  , precision:  0.5636363636363636
